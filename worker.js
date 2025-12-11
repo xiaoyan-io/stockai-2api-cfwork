@@ -338,7 +338,6 @@ function handleCorsPreflight() {
 // --- [第四部分: 开发者驾驶舱 UI] ---
 function handleUI(request) {
   const origin = new URL(request.url).origin;
-  const apiKey = request.ctx.apiKey;
   
   const html = `<!DOCTYPE html>
 <html lang="zh-CN">
@@ -380,14 +379,8 @@ function handleUI(request) {
         
         <div class="box">
             <span class="label">API 密钥</span>
-            <div class="code-block secret">
-              <span id="api-key-mask">${'•'.repeat(apiKey.length)}</span>
-              <div class="code-actions">
-                <button class="ghost-btn" id="toggle-key" onclick="toggleKey()">显示</button>
-                <button class="ghost-btn" onclick="copyKey()">复制</button>
-              </div>
-            </div>
-            <div style="font-size:11px;color:#888;margin-top:6px;">默认隐藏，点击“显示”后查看完整密钥。</div>
+            <input id="api-key" type="password" placeholder="请输入 API 密钥" autocomplete="off" value="" />
+            <div style="font-size:11px;color:#888;margin-top:6px;">出于安全考虑，密钥以密码形式存储并显示（本地仅保存在浏览器）。</div>
         </div>
 
         <div class="box">
@@ -434,9 +427,14 @@ function handleUI(request) {
     </main>
 
     <script>
-        const API_KEY = "${apiKey}";
         const ENDPOINT = "${origin}/v1/chat/completions";
-        let keyVisible = false;
+
+        // 将密钥保存在浏览器，避免每次刷新都因缺少密钥而 401
+        const savedKey = localStorage.getItem('stockai_api_key');
+        if (savedKey) {
+            const input = document.getElementById('api-key');
+            input.value = savedKey;
+        }
         
         function log(msg) {
             const el = document.getElementById('logs');
@@ -452,23 +450,6 @@ function handleUI(request) {
             log('已复制到剪贴板');
         }
 
-        function copyKey() {
-            copy(API_KEY);
-        }
-
-        function toggleKey() {
-            const el = document.getElementById('api-key-mask');
-            const btn = document.getElementById('toggle-key');
-            if (keyVisible) {
-                el.innerText = '•'.repeat(API_KEY.length);
-                btn.innerText = '显示';
-            } else {
-                el.innerText = API_KEY;
-                btn.innerText = '隐藏';
-            }
-            keyVisible = !keyVisible;
-        }
-
         function appendMsg(role, text) {
             const div = document.createElement('div');
             div.className = \`msg \${role}\`;
@@ -482,8 +463,12 @@ function handleUI(request) {
             const prompt = document.getElementById('prompt').value.trim();
             const model = document.getElementById('model').value;
             const stream = document.getElementById('stream').checked;
-            
+            const apiKeyInput = document.getElementById('api-key').value.trim();
+
             if (!prompt) return alert('请输入提示词');
+            if (!apiKeyInput) return alert('请先输入 API 密钥');
+
+            localStorage.setItem('stockai_api_key', apiKeyInput);
 
             const btn = document.getElementById('btn-gen');
             btn.disabled = true;
@@ -502,9 +487,9 @@ function handleUI(request) {
             try {
                 const res = await fetch(ENDPOINT, {
                     method: 'POST',
-                    headers: { 
-                        'Authorization': 'Bearer ' + API_KEY, 
-                        'Content-Type': 'application/json' 
+                    headers: {
+                        'Authorization': 'Bearer ' + apiKeyInput,
+                        'Content-Type': 'application/json'
                     },
                     body: JSON.stringify({
                         model: model,
