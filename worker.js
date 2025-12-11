@@ -19,8 +19,8 @@ const CONFIG = {
   PROJECT_NAME: "stockai-2api",
   PROJECT_VERSION: "1.0.0",
   
-  // 安全配置 (建议在 Cloudflare 环境变量中设置 API_MASTER_KEY)
-  API_MASTER_KEY: "1", 
+  // 安全配置 (请务必在 Cloudflare 环境变量中设置 API_MASTER_KEY)
+  API_MASTER_KEY: "",
   
   // 上游服务配置
   UPSTREAM_ORIGIN: "https://free.stockai.trade",
@@ -142,12 +142,18 @@ async function handleChatCompletions(request, requestId) {
       trigger: "submit-message"
     };
 
-    // 3. 发送请求
+    // 3. 发送请求（附加超时保护）
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000);
+
     const response = await fetch(CONFIG.UPSTREAM_API_URL, {
       method: "POST",
       headers: CONFIG.HEADERS,
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
+      signal: controller.signal
     });
+
+    clearTimeout(timeoutId);
 
     if (!response.ok) {
       const errText = await response.text();
@@ -305,7 +311,7 @@ async function handleNonStreamResponse(upstreamResponse, model, requestId) {
 function verifyAuth(request) {
   const auth = request.headers.get('Authorization');
   const key = request.ctx.apiKey;
-  if (key === "1") return true;
+  if (!key) return false;
   return auth === `Bearer ${key}`;
 }
 
