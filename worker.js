@@ -5,7 +5,7 @@
  * 作者: 首席AI执行官 (Principal AI Executive Officer)
  * 协议: 奇美拉协议 · 综合版 (Project Chimera: Synthesis Edition)
  * 日期: 2025-12-06
- * 
+ *
  * [核心特性]
  * 1. [双模适配] 同时支持流式(SSE)和非流式(JSON)响应，完美适配沉浸式翻译插件。
  * 2. [协议清洗] 将 StockAI 的自定义事件流实时转换为标准 OpenAI 格式。
@@ -18,11 +18,15 @@
 const CONFIG = {
   PROJECT_NAME: "stockai-2api",
   PROJECT_VERSION: "1.0.0",
-  
+
+  // 硬编码配置 (按需替换)
+  API_KEY: "sk-stockai-proxy-demo",
+  DEFAULT_MODEL: "openai/gpt-4o-mini",
+
   // 上游服务配置
   UPSTREAM_ORIGIN: "https://free.stockai.trade",
   UPSTREAM_API_URL: "https://free.stockai.trade/api/chat",
-  
+
   // 伪装指纹 (基于 Chrome 142)
   HEADERS: {
     "authority": "free.stockai.trade",
@@ -32,9 +36,9 @@ const CONFIG = {
     "origin": "https://free.stockai.trade",
     "referer": "https://free.stockai.trade/",
     "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36",
-    "sec-ch-ua": '"Chromium";v="142", "Google Chrome";v="142", "Not_A Brand";v="99"',
+    "sec-ch-ua": '\"Chromium\";v="142", "Google Chrome";v="142", "Not_A Brand";v="99"',
     "sec-ch-ua-mobile": "?0",
-    "sec-ch-ua-platform": '"Windows"',
+    "sec-ch-ua-platform": '\"Windows\"',
     "sec-fetch-dest": "empty",
     "sec-fetch-mode": "cors",
     "sec-fetch-site": "same-origin",
@@ -52,14 +56,13 @@ const CONFIG = {
     "z-ai/glm-4.6",
     "mistral/mistral-small",
     "qwen/qwen3-coder"
-  ],
-  DEFAULT_MODEL: "openai/gpt-4o-mini"
+  ]
 };
 
 // --- [第二部分: Worker 入口与路由] ---
 export default {
   async fetch(request, env, ctx) {
-    const apiKey = env.API_MASTER_KEY;
+    const apiKey = CONFIG.API_KEY;
     request.ctx = { apiKey };
 
     const url = new URL(request.url);
@@ -70,7 +73,7 @@ export default {
     // 2. 路由分发
     if (url.pathname === '/') return handleUI(request);
     if (url.pathname.startsWith('/v1/')) return handleApi(request);
-    
+
     return createErrorResponse(`路径未找到: ${url.pathname}`, 404, 'not_found');
   }
 };
@@ -194,7 +197,7 @@ function handleStreamResponse(upstreamResponse, model, requestId, isWebUI) {
 
             try {
               const data = JSON.parse(dataStr);
-              
+
               // StockAI 的 delta 在 data.delta 中，且类型为 text-delta
               if (data.type === 'text-delta' && data.delta) {
                 const chunk = {
@@ -339,200 +342,235 @@ function handleUI(request) {
   const html = `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>${CONFIG.PROJECT_NAME} - 开发者驾驶舱</title>
-    <style>
-      :root { --bg: #121212; --panel: #1E1E1E; --border: #333; --text: #E0E0E0; --primary: #FFBF00; --accent: #007AFF; }
-      body { font-family: 'Segoe UI', sans-serif; background: var(--bg); color: var(--text); margin: 0; height: 100vh; display: flex; overflow: hidden; }
-      .sidebar { width: 380px; background: var(--panel); border-right: 1px solid var(--border); padding: 20px; display: flex; flex-direction: column; overflow-y: auto; }
-      .main { flex: 1; display: flex; flex-direction: column; padding: 20px; }
-      
-      .box { background: #252525; padding: 12px; border-radius: 6px; border: 1px solid var(--border); margin-bottom: 15px; }
-      .label { font-size: 12px; color: #888; margin-bottom: 5px; display: block; }
-      .code-block { font-family: monospace; font-size: 12px; color: var(--primary); word-break: break-all; background: #111; padding: 8px; border-radius: 4px; cursor: pointer; }
-      .code-block.secret { cursor: default; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-      .code-actions { display: flex; gap: 6px; }
-      .ghost-btn { background: #1f1f1f; color: #ddd; border: 1px solid #333; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 11px; }
-      .ghost-btn:hover { border-color: var(--primary); color: var(--primary); }
-      
-      input, select, textarea { width: 100%; background: #333; border: 1px solid #444; color: #fff; padding: 8px; border-radius: 4px; margin-bottom: 10px; box-sizing: border-box; }
-      button { width: 100%; padding: 10px; background: var(--primary); border: none; border-radius: 4px; font-weight: bold; cursor: pointer; color: #000; }
-      button:disabled { background: #555; cursor: not-allowed; }
-      
-      .chat-window { flex: 1; background: #000; border: 1px solid var(--border); border-radius: 8px; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 15px; }
-      .msg { max-width: 80%; padding: 10px 15px; border-radius: 8px; line-height: 1.5; }
-      .msg.user { align-self: flex-end; background: #333; color: #fff; }
-      .msg.ai { align-self: flex-start; background: #1a1a1a; border: 1px solid #333; width: 100%; max-width: 100%; }
-      
-      .log-panel { height: 150px; background: #111; border-top: 1px solid var(--border); padding: 10px; font-family: monospace; font-size: 11px; color: #aaa; overflow-y: auto; }
-      .log-entry { margin-bottom: 4px; border-bottom: 1px solid #222; padding-bottom: 2px; }
-      .log-time { color: #666; margin-right: 5px; }
-    </style>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>${CONFIG.PROJECT_NAME} · Cloudflare Worker</title>
+  <style>
+    :root {
+      --bg: #0b1021;
+      --card: #11172e;
+      --panel: #0f1428;
+      --border: #1f2a48;
+      --text: #e8ecff;
+      --muted: #9fb1ff;
+      --primary: #ffd166;
+      --accent: #7bdff2;
+      --danger: #ff6b6b;
+      --success: #1dd1a1;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: 'Inter', 'Segoe UI', system-ui, -apple-system; background: radial-gradient(circle at 10% 20%, rgba(123,223,242,0.12), transparent 25%), radial-gradient(circle at 90% 10%, rgba(255,209,102,0.1), transparent 25%), var(--bg); color: var(--text); min-height: 100vh; }
+    a { color: var(--accent); text-decoration: none; }
+    .shell { max-width: 1200px; margin: 0 auto; padding: 28px 18px 38px; display: flex; flex-direction: column; gap: 18px; }
+    header { background: linear-gradient(135deg, rgba(123,223,242,0.08), rgba(255,209,102,0.08)); border: 1px solid var(--border); border-radius: 14px; padding: 20px 22px; display: flex; justify-content: space-between; gap: 16px; align-items: center; box-shadow: 0 18px 60px rgba(0,0,0,0.35); }
+    .title { font-size: 22px; font-weight: 800; display: flex; flex-direction: column; gap: 4px; }
+    .title small { color: var(--muted); font-weight: 500; }
+    .badge { background: rgba(255,209,102,0.16); color: var(--primary); padding: 8px 12px; border-radius: 10px; font-weight: 700; border: 1px solid rgba(255,209,102,0.3); }
+    .grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+    .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 16px 16px 18px; box-shadow: 0 10px 30px rgba(0,0,0,0.3); }
+    .card h3 { margin: 0 0 10px; font-size: 16px; letter-spacing: 0.2px; }
+    .pill { display: inline-flex; align-items: center; gap: 8px; padding: 10px 12px; background: var(--panel); border: 1px dashed var(--border); border-radius: 10px; font-family: 'JetBrains Mono', monospace; font-size: 13px; cursor: pointer; }
+    .pill:hover { border-color: var(--accent); color: var(--accent); }
+    .list { margin: 0; padding-left: 18px; color: var(--muted); line-height: 1.55; }
+    .section-title { font-size: 18px; margin: 4px 0 10px; display: flex; align-items: center; gap: 8px; }
+    .endpoint { display: flex; align-items: center; gap: 10px; padding: 10px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; font-family: 'JetBrains Mono', monospace; font-size: 13px; }
+    .method { padding: 4px 8px; border-radius: 8px; font-weight: 700; }
+    .method.post { background: rgba(123,223,242,0.16); color: var(--accent); border: 1px solid rgba(123,223,242,0.36); }
+    .method.get { background: rgba(29,209,161,0.16); color: var(--success); border: 1px solid rgba(29,209,161,0.36); }
+    .panel { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
+    .panel h4 { margin: 0 0 12px; font-size: 16px; }
+    label { display: block; margin-bottom: 6px; color: var(--muted); font-size: 13px; }
+    input, select, textarea, button { width: 100%; border-radius: 10px; border: 1px solid var(--border); background: #0c1224; color: var(--text); padding: 10px 12px; font-size: 14px; }
+    textarea { min-height: 110px; resize: vertical; }
+    button { margin-top: 6px; background: linear-gradient(135deg, var(--accent), var(--primary)); border: none; color: #0c1224; font-weight: 800; letter-spacing: 0.4px; cursor: pointer; box-shadow: 0 12px 30px rgba(0,0,0,0.35); }
+    button:disabled { filter: grayscale(0.5); opacity: 0.7; cursor: not-allowed; }
+    .status { margin-top: 8px; font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 8px; }
+    pre { background: #080c1a; border: 1px solid var(--border); border-radius: 12px; padding: 14px; color: var(--text); font-family: 'JetBrains Mono', monospace; font-size: 13px; min-height: 120px; white-space: pre-wrap; word-break: break-word; }
+    footer { text-align: center; color: var(--muted); font-size: 12px; padding: 10px 0 4px; }
+  </style>
 </head>
 <body>
-    <div class="sidebar">
-        <h2 style="margin-top:0">🚀 ${CONFIG.PROJECT_NAME} <span style="font-size:12px;color:#888">v${CONFIG.PROJECT_VERSION}</span></h2>
-        
-        <div class="box">
-            <span class="label">API 密钥（手动输入）</span>
-            <input id="api-key" type="password" placeholder="请输入 API_MASTER_KEY" aria-label="API 密钥" />
-            <div style="font-size:11px;color:#888;margin-top:6px;">密钥不会被页面保存或暴露，请手动输入后再发起请求。</div>
-        </div>
+  <div class="shell">
+    <header>
+      <div class="title">
+        <div>🛰️ ${CONFIG.PROJECT_NAME} · Cloudflare Worker</div>
+        <small>All-in-one Serverless Proxy · 极致体验 · 自动适配当前域名</small>
+      </div>
+      <div class="badge">v${CONFIG.PROJECT_VERSION} · 单文件</div>
+    </header>
 
-        <div class="box">
-            <span class="label">API 接口地址</span>
-            <div class="code-block" onclick="copy('${origin}/v1/chat/completions')">${origin}/v1/chat/completions</div>
+    <section>
+      <div class="section-title">📋 即用信息 (Ready-to-Use Info)</div>
+      <div class="grid">
+        <div class="card">
+          <h3>API 地址</h3>
+          <div class="pill" onclick="copyText('${origin}/v1/chat/completions')">${origin}/v1/chat/completions</div>
         </div>
-
-        <div class="box">
-            <span class="label">模型选择</span>
-            <select id="model">
-                ${CONFIG.MODELS.map(m => `<option value="${m}">${m}</option>`).join('')}
-            </select>
-            
-            <span class="label">提示词 (Prompt)</span>
-            <textarea id="prompt" rows="4" placeholder="输入问题...">你好，请介绍一下你自己。</textarea>
-            
-            <div style="display:flex; gap:10px; align-items:center; margin-bottom:10px;">
-                <input type="checkbox" id="stream" checked style="width:auto; margin:0;">
-                <label for="stream" style="margin:0; font-size:12px; color:#ccc;">流式响应 (Stream)</label>
-            </div>
-
-            <button id="btn-gen" onclick="send()">发送请求</button>
+        <div class="card">
+          <h3>API 密钥</h3>
+          <div class="pill" onclick="copyText('${CONFIG.API_KEY}')">${CONFIG.API_KEY}</div>
         </div>
-        
-        <div class="box">
-            <span class="label">功能说明</span>
-            <div style="font-size:12px; color:#888;">
-                ✅ 匿名访问 (无需 Cookie)<br>
-                ✅ 支持流式 (SSE) 输出<br>
-                ✅ 支持非流式 (适配沉浸式翻译)<br>
-                ✅ 自动 Markdown 渲染
-            </div>
+        <div class="card">
+          <h3>默认模型</h3>
+          <div class="pill" onclick="copyText('${CONFIG.DEFAULT_MODEL}')">${CONFIG.DEFAULT_MODEL}</div>
         </div>
-    </div>
+      </div>
+    </section>
 
-    <main class="main">
-        <div class="chat-window" id="chat">
-            <div style="color:#666; text-align:center; margin-top:50px;">
-                StockAI 代理服务就绪。<br>
-                支持 OpenAI 格式调用。
-            </div>
+    <section>
+      <div class="section-title">🔌 完整接口路径 (Full API Endpoints)</div>
+      <div class="grid">
+        <div class="card">
+          <div class="endpoint"><span class="method post">POST</span><span>${origin}/v1/chat/completions</span></div>
+          <div class="endpoint" style="margin-top:8px;"><span class="method get">GET</span><span>${origin}/v1/models</span></div>
         </div>
-        <div class="log-panel" id="logs"></div>
-    </main>
+        <div class="card">
+          <h3>可用模型</h3>
+          <ul class="list">
+            ${CONFIG.MODELS.map(m => `<li>${m}</li>`).join('')}
+          </ul>
+        </div>
+      </div>
+    </section>
 
-    <script>
-        const ENDPOINT = "${origin}/v1/chat/completions";
-        function getApiKey() {
-            return document.getElementById('api-key').value.trim();
+    <section>
+      <div class="section-title">🛠️ 开发者信息 (Developer Info)</div>
+      <div class="grid">
+        <div class="card">
+          <h3>上游接口 (Upstream API)</h3>
+          <div class="pill" onclick="copyText('${CONFIG.UPSTREAM_API_URL}')">${CONFIG.UPSTREAM_API_URL}</div>
+        </div>
+        <div class="card">
+          <h3>项目模式 (Project Mode)</h3>
+          <div class="pill">伪流式代理 (Pseudo-Stream Proxy)</div>
+        </div>
+        <div class="card">
+          <h3>请求指纹</h3>
+          <div class="pill">Chrome 142 / Same-Origin CORS / SSE → OpenAI</div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <div class="section-title">🚀 在线 API 测试 (Live API Tester)</div>
+      <div class="grid">
+        <div class="panel">
+          <h4>请求参数</h4>
+          <label>API 地址</label>
+          <input id="api-url" readonly value="${origin}/v1/chat/completions" />
+          <label>API 密钥 (自动填充)</label>
+          <input id="api-key" readonly value="${CONFIG.API_KEY}" />
+          <label>模型</label>
+          <select id="model">${CONFIG.MODELS.map(m => `<option value="${m}" ${m === CONFIG.DEFAULT_MODEL ? 'selected' : ''}>${m}</option>`).join('')}</select>
+          <label>提示词 (Prompt)</label>
+          <textarea id="prompt">你好，请用 2 句话介绍这个 Worker 的能力。</textarea>
+          <label style="display:flex; align-items:center; gap:10px;">
+            <input type="checkbox" id="stream" checked style="width:auto; height:auto;"> 以 SSE 流式返回
+          </label>
+          <button id="btn-send" onclick="sendTest()">发送</button>
+          <div class="status" id="status">⚡ 就绪 · 自动使用当前域名与内置密钥</div>
+        </div>
+        <div class="panel">
+          <h4>实时返回</h4>
+          <pre id="result">等待请求...</pre>
+        </div>
+      </div>
+    </section>
+
+    <footer>Made with ☁️ + ⚡ · 自动适配 Cloudflare Workers · 纯前端内联</footer>
+  </div>
+
+  <script>
+    const HARDCODED_KEY = '${CONFIG.API_KEY}';
+    const BASE_URL = window.location.origin;
+
+    function copyText(text) {
+      navigator.clipboard?.writeText(text).then(() => {
+        const status = document.getElementById('status');
+        status.textContent = '📎 已复制: ' + text;
+        setTimeout(() => status.textContent = '⚡ 就绪 · 自动使用当前域名与内置密钥', 1500);
+      });
+    }
+
+    async function sendTest() {
+      const prompt = document.getElementById('prompt').value.trim();
+      const model = document.getElementById('model').value;
+      const stream = document.getElementById('stream').checked;
+      const result = document.getElementById('result');
+      const status = document.getElementById('status');
+      const btn = document.getElementById('btn-send');
+
+      if (!prompt) {
+        result.textContent = '⚠️ 请先输入提示词';
+        return;
+      }
+
+      const endpoint = BASE_URL + '/v1/chat/completions';
+      status.textContent = '🧠 正在思考...';
+      result.textContent = '';
+      btn.disabled = true;
+
+      try {
+        const res = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Authorization': 'Bearer ' + HARDCODED_KEY,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            model,
+            messages: [{ role: 'user', content: prompt }],
+            stream,
+            is_web_ui: true
+          })
+        });
+
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ error: { message: res.statusText } }));
+          throw new Error(err.error?.message || '请求失败');
         }
-        
-        function log(msg) {
-            const el = document.getElementById('logs');
-            const div = document.createElement('div');
-            div.className = 'log-entry';
-            div.innerHTML = \`<span class="log-time">[\${new Date().toLocaleTimeString()}]</span> \${msg}\`;
-            el.appendChild(div);
-            el.scrollTop = el.scrollHeight;
-        }
 
-        function copy(text) {
-            navigator.clipboard.writeText(text);
-            log('已复制到剪贴板');
-        }
+        if (stream) {
+          const reader = res.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = '';
+          let full = '';
 
-        function appendMsg(role, text) {
-            const div = document.createElement('div');
-            div.className = \`msg \${role}\`;
-            div.innerText = text;
-            document.getElementById('chat').appendChild(div);
-            div.scrollIntoView({ behavior: "smooth" });
-            return div;
-        }
-
-        async function send() {
-            const prompt = document.getElementById('prompt').value.trim();
-            const model = document.getElementById('model').value;
-            const stream = document.getElementById('stream').checked;
-            const apiKey = getApiKey();
-
-            if (!prompt) return alert('请输入提示词');
-            if (!apiKey) return alert('请先输入 API 密钥');
-
-            const btn = document.getElementById('btn-gen');
-            btn.disabled = true;
-            btn.innerText = "请求中...";
-
-            if(document.querySelector('.chat-window').innerText.includes('代理服务就绪')) {
-                document.getElementById('chat').innerHTML = '';
-            }
-
-            appendMsg('user', prompt);
-            const aiMsg = appendMsg('ai', '...');
-            let fullText = "";
-
-            log(\`发送请求: \${model} (Stream: \${stream})\`);
-
-            try {
-                const res = await fetch(ENDPOINT, {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': 'Bearer ' + apiKey,
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        model: model,
-                        messages: [{ role: 'user', content: prompt }],
-                        stream: stream,
-                        is_web_ui: true
-                    })
-                });
-
-                if (!res.ok) throw new Error((await res.json()).error?.message || '请求失败');
-
-                if (stream) {
-                    const reader = res.body.getReader();
-                    const decoder = new TextDecoder();
-                    aiMsg.innerText = "";
-
-                    while (true) {
-                        const { done, value } = await reader.read();
-                        if (done) break;
-                        const chunk = decoder.decode(value);
-                        const lines = chunk.split('\\n');
-                        for (const line of lines) {
-                            if (line.startsWith('data: ')) {
-                                const dataStr = line.slice(6);
-                                if (dataStr === '[DONE]') break;
-                                try {
-                                    const json = JSON.parse(dataStr);
-                                    const content = json.choices[0].delta.content;
-                                    if (content) {
-                                        fullText += content;
-                                        aiMsg.innerText = fullText;
-                                    }
-                                } catch (e) {}
-                            }
-                        }
-                    }
-                } else {
-                    const data = await res.json();
-                    aiMsg.innerText = data.choices[0].message.content;
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || '';
+            for (const line of lines) {
+              if (!line.startsWith('data: ')) continue;
+              const dataStr = line.slice(6);
+              if (dataStr === '[DONE]') continue;
+              try {
+                const json = JSON.parse(dataStr);
+                const delta = json.choices?.[0]?.delta?.content;
+                if (delta) {
+                  full += delta;
+                  result.textContent = full;
                 }
-                log('请求完成');
-
-            } catch (e) {
-                aiMsg.innerText = 'Error: ' + e.message;
-                aiMsg.style.color = '#CF6679';
-                log('错误: ' + e.message);
-            } finally {
-                btn.disabled = false;
-                btn.innerText = "发送请求";
+              } catch (err) { }
             }
+          }
+          if (!full) result.textContent = 'ℹ️ 流式通道已完成，但未返回内容';
+        } else {
+          const data = await res.json();
+          result.textContent = data.choices?.[0]?.message?.content || JSON.stringify(data, null, 2);
         }
-    </script>
+
+        status.textContent = '✅ 已完成 · SSE 转换 → OpenAI 兼容';
+      } catch (err) {
+        status.textContent = '❌ 错误';
+        result.textContent = 'Error: ' + err.message;
+      } finally {
+        btn.disabled = false;
+      }
+    }
+  </script>
 </body>
 </html>`;
 
