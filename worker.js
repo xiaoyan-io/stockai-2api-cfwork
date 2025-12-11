@@ -19,9 +19,6 @@ const CONFIG = {
   PROJECT_NAME: "stockai-2api",
   PROJECT_VERSION: "1.0.0",
   
-  // 安全配置 (建议在 Cloudflare 环境变量中设置 API_MASTER_KEY)
-  API_MASTER_KEY: "1", 
-  
   // 上游服务配置
   UPSTREAM_ORIGIN: "https://free.stockai.trade",
   UPSTREAM_API_URL: "https://free.stockai.trade/api/chat",
@@ -62,7 +59,7 @@ const CONFIG = {
 // --- [第二部分: Worker 入口与路由] ---
 export default {
   async fetch(request, env, ctx) {
-    const apiKey = env.API_MASTER_KEY || CONFIG.API_MASTER_KEY;
+    const apiKey = env.API_MASTER_KEY;
     request.ctx = { apiKey };
 
     const url = new URL(request.url);
@@ -305,7 +302,7 @@ async function handleNonStreamResponse(upstreamResponse, model, requestId) {
 function verifyAuth(request) {
   const auth = request.headers.get('Authorization');
   const key = request.ctx.apiKey;
-  if (key === "1") return true;
+  if (!key) return false;
   return auth === `Bearer ${key}`;
 }
 
@@ -380,7 +377,7 @@ function handleUI(request) {
         <div class="box">
             <span class="label">API 密钥（手动输入）</span>
             <input id="api-key" type="password" placeholder="请输入 API_MASTER_KEY" aria-label="API 密钥" />
-            <div style="font-size:11px;color:#888;margin-top:6px;">密钥不再在界面中显示，请手动输入后再发起请求。</div>
+            <div style="font-size:11px;color:#888;margin-top:6px;">密钥不会被页面保存或暴露，请手动输入后再发起请求。</div>
         </div>
 
         <div class="box">
